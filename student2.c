@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "project2.h"
 
 /* ***************************************************************************
@@ -24,17 +25,103 @@
  * and would be called by other procedures in the operating system.  
  * All these routines are in layer 4.
  */
+extern int TraceLevel;
 
-int sequence, count = 0;
-struct msg buffer;
+#define CORRUPT (0)
+#define NOT_CORRUPT (1)
+
+#define READY (0)
+#define NOT_READY (1)
+
+#define TIMEOUT (5000)
+
+struct pkt universalAPkt;
+int SendStatus;
+
+struct pkt universalBPkt;
+int previousSeqNum;
+
+int flipBit(int seqnum) {
+	if (seqnum == 1) {
+		seqnum = 0;
+	} else {
+		seqnum = 1;
+	}
+	return seqnum;
+}
 
 int checkSum(char data[20]) {
-	int checkSum = 0;
+	int total = 0;
 	for (int i = 0; i < 20; i++) {
-		checkSum += data[i];
+		total += (data[i] * (i + 1));
 	}
-	return checkSum;
 }
+
+int PacketStatus(struct pkt packet) {
+	if (checkSum(packet.payload) != packet.checksum) {
+		if (TraceLevel > 1) {
+			printf(
+					"Corrupted Packet Checksum!\n Calculated:%d\n Actual: %d;\n\n",
+					checkSum(packet.payload), universalAPkt.checksum);
+		}
+		return CORRUPT;
+	}
+	if (packet.seqnum != 0 && packet.seqnum != 1) {
+		if (TraceLevel > 1) {
+			printf("Corrupted Packet Sequence Number!\n Calculated:%d\n Actual: %d;\n\n",
+					packet.seqnum, universalAPkt.seqnum);
+		}
+		return CORRUPT;
+	}
+	if (packet.acknum != 1 && packet.acknum != 0) {
+		if (TraceLevel > 1) {
+			printf("Corrupted Packet ACK Number!\n Packet Acknum: %d;\n\n",
+					universalAPkt.acknum);
+		}
+		return CORRUPT;
+	}
+	return NOT_CORRUPT;
+}
+
+/* Message */
+struct Node {
+	char data[20];
+	struct Node* next;
+};
+
+// Stores first and last nodes.
+struct Node* first = NULL;
+struct Node* last = NULL;
+
+void enqueue(char x[20]) {
+	struct Node* temp = (struct Node*) malloc(sizeof(struct Node));
+
+	strncpy(temp->data, x, 20);
+	temp->next = NULL;
+
+	if (first == NULL && last == NULL) {
+		first = last = temp;
+		return;
+	}
+
+	last->next = temp;
+	last = temp;
+	return;
+}
+
+char *dequeue() {
+	struct Node* temp = first;
+	if (first == NULL) {
+		return NULL;
+	}
+	if (first == last) {
+		first = last = NULL;
+	} else {
+		first = first->next;
+	}
+	return temp->data;
+}
+
 /* 
  * A_output(message), where message is a structure of type msg, containing 
  * data to be sent to the B-side. This routine will be called whenever the 
@@ -43,25 +130,20 @@ int checkSum(char data[20]) {
  * in-order, and correctly, to the receiving side upper layer.
  */
 void A_output(struct msg message) {
+	if (SendStatus == NOT_READY) {
+		enqueue(message.data);
+		return;
+	} else if (SendStatus == READY) {
+		universalAPkt.seqnum = flipBit(universalAPkt.seqnum);
+		universalAPkt.acknum = 0;
+		strncpy(universalAPkt.payload, message.data, 20);
+		universalAPkt.checksum = checkSum(universalAPkt.payload);
 
-	struct pkt newPkt;
-
-	newPkt.seqnum = sequence % 2;
-
-	/* create packets from incoming messages */
-	for (int i = 0; i < sizeof(message.data); i++) {
-		newPkt.payload[i] = message.data[i];
-		buffer.data[i] = message.data[i];
+		stopTimer(0);
+		startTimer(0, 5000);
+		tolayer3(0, universalAPkt);
+		SendStatus = NOT_READY;
 	}
-
-	/* Run all messages through checkSum method */
-	/* Send to Layer 3, i.e. The Network Layer */
-	newPkt.checksum = checkSum(newPkt.payload);
-
-	printf("A_output: Sending Message: %s\n", newPkt.payload);
-
-	startTimer(0, 20.0);
-	tolayer3(0, newPkt);
 }
 
 /*
@@ -69,7 +151,7 @@ void A_output(struct msg message) {
  * implementation is bi-directional.
  */
 void B_output(struct msg message) {
-	printf("B_output: Only used when implementation is bi-directional\n");
+	// Do Not Require
 }
 
 /* 
@@ -79,16 +161,19 @@ void B_output(struct msg message) {
  * packet is the (possibly corrupted) packet sent from the B-side.
  */
 void A_input(struct pkt packet) {
-	// struct msg newMsg;
-	printf("A_input: reading ACK from B\n");
-	stopTimer(0);
+	char str[20];
+	memset(str, '\0', sizeof(str));
 
-	if (packet.acknum == 0 && sequence % 2 == 0) {
-		sequence++;
-	} else if (packet.acknum == 1 && sequence % 2 == 1) {
-		sequence++;
-	} else {
-		A_output(buffer);
+	if ((!strcmp(packet.payload, str))
+			&& (packet.checksum == checkSum(packet.payload))
+			&& (packet.acknum == 1 && packet.seqnum == universalAPkt.seqnum)) {
+		SendStatus = READY;
+		char *buffer = dequeue();
+		if (buffer != NULL) {
+			struct msg newMessage;
+			strncpy(newMessage.data, buffer, 20);
+			A_output(newMessage);
+		}
 	}
 }
 
@@ -99,12 +184,20 @@ void A_input(struct pkt packet) {
  * and stoptimer() in the writeup for how the timer is started and stopped.
  */
 void A_timerinterrupt() {
-	A_output(buffer);
+	stopTimer(0);
+	SendStatus = READY;
+	struct msg newMessage;
+	strncpy(newMessage.data, universalAPkt.payload, 20);
+	universalAPkt.seqnum = flipBit(universalAPkt.seqnum);
+	A_output(newMessage);
 }
 
 /* The following routine will be called once (only) before any other    */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init() {
+	universalAPkt.seqnum = 0;
+	universalAPkt.acknum = 1;
+	SendStatus = READY;
 }
 
 /* 
@@ -118,26 +211,27 @@ void A_init() {
  * packet is the (possibly corrupted) packet sent from the A-side.
  */
 void B_input(struct pkt packet) {
-	int checkSumB;
-	struct msg newMsg;
-	struct pkt ackPkt;
+	if (PacketStatus(packet) == CORRUPT) {
+		universalBPkt.seqnum = previousSeqNum;
+		universalBPkt.checksum = checkSum(universalBPkt.payload);
+		tolayer3(1, universalBPkt);
+		return;
+	} else if (packet.seqnum == previousSeqNum) {
+		universalBPkt.seqnum = previousSeqNum;
+		universalBPkt.checksum = checkSum(universalBPkt.payload);
+		tolayer3(1, universalBPkt);
+	} else {
+		previousSeqNum = packet.seqnum;
+		universalBPkt.seqnum = packet.seqnum;
+		universalBPkt.checksum = checkSum(universalBPkt.payload);
+		tolayer3(1, universalBPkt);
 
-	/* calculate checksum and send to layer 3 */
-	checkSumB = checkSum(packet.payload);
-	if (checkSumB != packet.checksum) {
-		ackPkt.acknum = -1;
-		tolayer3(1, ackPkt);
-	} else { /*  */
-		for (int i = 0; i < 20; i++) {
-			newMsg.data[i] = packet.payload[i];
-		}
+		struct msg newMessage;
+		strncpy(newMessage.data, packet.payload, 20);
+		tolayer5(1, newMessage);
 
-		printf("B_input: Message Received: %s\n", newMsg.data);
-		tolayer5(1, newMsg);
-		printf("B_input: Sending to Layer 3\n");
-		ackPkt.acknum = packet.seqnum;
-		tolayer3(1, ackPkt);
 	}
+
 }
 
 /*
@@ -147,6 +241,7 @@ void B_input(struct pkt packet) {
  * and stoptimer() in the writeup for how the timer is started and stopped.
  */
 void B_timerinterrupt() {
+	// Do Not Require
 }
 
 /* 
@@ -154,5 +249,8 @@ void B_timerinterrupt() {
  * entity B routines are called. You can use it to do any initialization 
  */
 void B_init() {
+	previousSeqNum = 0;
+	universalBPkt.acknum = 1;
+	memset(universalBPkt.payload, '\0', sizeof(universalBPkt.payload));
 }
 
