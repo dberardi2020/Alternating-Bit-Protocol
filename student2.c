@@ -33,8 +33,6 @@ extern int TraceLevel;
 #define READY (0)
 #define NOT_READY (1)
 
-#define TIMEOUT (5000)
-
 struct pkt universalAPkt;
 int SendStatus;
 
@@ -75,7 +73,7 @@ int PacketStatus(struct pkt packet) {
 		}
 		return CORRUPT;
 	}
-	if (packet.acknum != 1) {
+	if (packet.acknum != 0) {
 		if (TraceLevel > 1) {
 			printf(
 					"Corrupted Packet ACK Number!\n Calculated:%d\n Actual: %d;\n\n",
@@ -143,7 +141,7 @@ void A_output(struct msg message) {
 		universalAPkt.checksum = checkSum(universalAPkt.payload);
 
 		stopTimer(0);
-		startTimer(0, 5);
+		startTimer(0, 5000);
 		tolayer3(0, universalAPkt);
 		SendStatus = NOT_READY;
 	}
@@ -199,7 +197,7 @@ void A_timerinterrupt() {
 /* entity A routines are called. You can use it to do any initialization */
 void A_init() {
 	universalAPkt.seqnum = 0;
-	universalAPkt.acknum = 1;
+	universalAPkt.acknum = 0;
 	SendStatus = READY;
 }
 
