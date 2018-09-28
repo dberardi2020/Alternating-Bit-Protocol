@@ -61,7 +61,7 @@ int PacketStatus(struct pkt packet) {
 	if (checkSum(packet.payload) != packet.checksum) {
 		if (TraceLevel > 1) {
 			printf(
-					"Corrupted Packet Checksum!\n Calculated:%d\n Actual: %d;\n\n",
+					"Corrupted Packet Checksum!\n Calculated: %d\n Actual: %d;\n\n",
 					checkSum(packet.payload), universalAPkt.checksum);
 		}
 		return CORRUPT;
@@ -75,8 +75,8 @@ int PacketStatus(struct pkt packet) {
 	}
 	if (packet.acknum != 1 && packet.acknum != 0) {
 		if (TraceLevel > 1) {
-			printf("Corrupted Packet ACK Number!\n Packet Acknum: %d;\n\n",
-					universalAPkt.acknum);
+			printf("Corrupted Packet ACK Number!\n Calculated:%d\n Actual: %d;\n\n",
+					packet.acknum, universalAPkt.acknum);
 		}
 		return CORRUPT;
 	}
