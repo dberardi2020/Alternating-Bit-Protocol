@@ -55,6 +55,7 @@ int checkSum(char data[20]) {
 	for (int i = 0; i < 20; i++) {
 		total += (data[i] * (i + 1));
 	}
+	return total;
 }
 
 int PacketStatus(struct pkt packet) {
@@ -62,20 +63,22 @@ int PacketStatus(struct pkt packet) {
 		if (TraceLevel > 1) {
 			printf(
 					"Corrupted Packet Checksum!\n Calculated: %d\n Actual: %d;\n\n",
-					checkSum(packet.payload), universalAPkt.checksum);
+					checkSum(packet.payload), packet.checksum);
 		}
 		return CORRUPT;
 	}
 	if (packet.seqnum != 0 && packet.seqnum != 1) {
 		if (TraceLevel > 1) {
-			printf("Corrupted Packet Sequence Number!\n Calculated:%d\n Actual: %d;\n\n",
+			printf(
+					"Corrupted Packet Sequence Number!\n Calculated:%d\n Actual: %d;\n\n",
 					packet.seqnum, universalAPkt.seqnum);
 		}
 		return CORRUPT;
 	}
-	if (packet.acknum != 1 && packet.acknum != 0) {
+	if (packet.acknum != 1) {
 		if (TraceLevel > 1) {
-			printf("Corrupted Packet ACK Number!\n Calculated:%d\n Actual: %d;\n\n",
+			printf(
+					"Corrupted Packet ACK Number!\n Calculated:%d\n Actual: %d;\n\n",
 					packet.acknum, universalAPkt.acknum);
 		}
 		return CORRUPT;
@@ -140,7 +143,7 @@ void A_output(struct msg message) {
 		universalAPkt.checksum = checkSum(universalAPkt.payload);
 
 		stopTimer(0);
-		startTimer(0, 5000);
+		startTimer(0, 5);
 		tolayer3(0, universalAPkt);
 		SendStatus = NOT_READY;
 	}
